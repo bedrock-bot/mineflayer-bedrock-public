@@ -442,6 +442,8 @@ export interface Bot extends TypedEmitter<BotEvents> {
   denyResourcePack: () => void
 
   respawn: () => void
+
+  close: () => void;
 }
 
 export interface simpleClick {

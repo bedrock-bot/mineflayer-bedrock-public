@@ -21,6 +21,8 @@
   },
   "license": "MIT",
   "dependencies": {
+    "bedrock-protocol": "^3.42.2",
+    "bedrock-provider": "^3.0.0",
     "minecraft-data": "^3.76.0",
     "minecraft-protocol": "^1.60.0",
     "prismarine-biome": "^1.1.1",
@@ -48,6 +50,6 @@
     "protodef-yaml": "^1.5.3",
     "standard": "^17.0.0",
     "standard-markdown": "^7.1.0",
-    "typescript": "^5.4.5"
+    "typescript": "^5.8.3"
   }
 }
