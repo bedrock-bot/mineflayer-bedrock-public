@@ -444,6 +444,8 @@ export interface Bot extends TypedEmitter<BotEvents> {
   respawn: () => void
 
   close: () => void;
+
+  cameraState: { pitch: number, yaw: number }
 }
 
 export interface simpleClick {
