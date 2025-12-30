@@ -1,9 +1,10 @@
 {
-    "compilerOptions": {
-      "module": "commonjs",
-      "strictNullChecks": true
-    },
-    "files": [
-      "index.d.ts"
-    ]
-}
+  "compilerOptions": {
+     "noEmit": true, // Optional - see note below
+     "target": "esnext",
+     "module": "nodenext",
+     "rewriteRelativeImportExtensions": true,
+     "erasableSyntaxOnly": true,
+     "verbatimModuleSyntax": true
+  }
+} 

@@ -12,8 +12,8 @@ import { world } from 'prismarine-world'
 import { Registry } from 'prismarine-registry'
 import { IndexedData } from 'minecraft-data'
 
-export function createBot (options: { client: Client } & Partial<BotOptions>): Bot
 export function createBot (options: BotOptions): Bot
+export function createBot (options: { client: Client } & Partial<BotOptions>): Bot
 
 export interface BotOptions extends ClientOptions {
   logErrors?: boolean
@@ -163,6 +163,7 @@ export interface BotEvents {
   bossBarUpdated: (bossBar: BossBar) => Promise<void> | void
   resourcePack: (url: string, hash?: string, uuid?: string) => Promise<void> | void
   particle: (particle: Particle) => Promise<void> | void
+  heldItemChanged: (heldItem: Item | null) => void
 }
 
 export interface CommandBlockOptions {
@@ -446,6 +447,8 @@ export interface Bot extends TypedEmitter<BotEvents> {
   close: () => void;
 
   cameraState: { pitch: number, yaw: number }
+
+  item_registry_task: {promise: Promise<void>} | null
 }
 
 export interface simpleClick {
