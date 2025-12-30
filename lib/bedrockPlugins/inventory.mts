@@ -14,6 +14,8 @@ import assert from "assert";
 const QUICK_BAR_COUNT = 9;
 const QUICK_BAR_START = 36;
 
+let nextRequestId = -1;
+
 export default function inject(bot: Bot) {
   bot.activateBlock = activateBlock;
   bot.activateEntity = activateEntity;
@@ -390,7 +392,103 @@ export default function inject(bot: Bot) {
     sourceSlot: number,
     destSlot: number
   ): Promise<void> {
-    throw new Error("moveSlotItem is not implemented");
+    // Get the item at the source slot to get its stack_id
+    const sourceItem = bot.inventory.slots[sourceSlot];
+    if (!sourceItem) {
+      throw new Error(`No item at source slot ${sourceSlot}`);
+    }
+
+    const sourceStackId = (sourceItem as any).stackId || 0;
+
+    // Convert slot indices to Bedrock window_id + slot format
+    const sourceContainer = getContainerFromSlot(sourceSlot);
+    const destContainer = getContainerFromSlot(destSlot);
+
+    // Generate unique request IDs (use negative numbers like in packet captures)
+    const takeRequestId = --nextRequestId;
+    const placeRequestId = --nextRequestId;
+
+    // Step 1: Take item from source to cursor
+    const takeRequest = {
+      requests: [
+        {
+          request_id: takeRequestId,
+          actions: [
+            {
+              type_id: "take",
+              count: sourceItem.count,
+              source: {
+                slot_type: {
+                  container_id: sourceContainer.containerId,
+                },
+                slot: sourceContainer.slot,
+                stack_id: sourceStackId,
+              },
+              destination: {
+                slot_type: {
+                  container_id: "cursor",
+                },
+                slot: 0,
+                stack_id: 0,
+              },
+            },
+          ],
+          custom_names: [],
+          cause: -1,
+        },
+      ],
+    };
+
+    // Send take request
+    bot._client.write("item_stack_request", takeRequest);
+
+    // Wait for response
+    const takeSuccess = await waitForResponse(takeRequestId);
+    if (!takeSuccess) {
+      throw new Error("Failed to take item from source slot");
+    }
+
+    // Step 2: Place item from cursor to destination
+    const placeRequest = {
+      requests: [
+        {
+          request_id: placeRequestId,
+          actions: [
+            {
+              type_id: "place",
+              count: sourceItem.count,
+              source: {
+                slot_type: {
+                  container_id: "cursor",
+                },
+                slot: 0,
+                stack_id: sourceStackId,
+              },
+              destination: {
+                slot_type: {
+                  container_id: destContainer.containerId,
+                },
+                slot: destContainer.slot,
+                stack_id: 0,
+              },
+            },
+          ],
+          custom_names: [],
+          cause: -1,
+        },
+      ],
+    };
+
+    // Send place request
+    bot._client.write("item_stack_request", placeRequest);
+
+    // Wait for response
+    const placeSuccess = await waitForResponse(placeRequestId);
+    if (!placeSuccess) {
+      throw new Error("Failed to place item at destination slot");
+    }
+
+    updateHeldItem();
   }
 
   function updateHeldItem(): void {
@@ -432,5 +530,50 @@ export default function inject(bot: Bot) {
 
     assert(!!window);
     return window;
+  }
+
+  function getContainerFromSlot(slotIndex: number): {
+    containerId: string;
+    slot: number;
+  } {
+    // Bedrock inventory layout:
+    // 0-8: hotbar (hotbar slots 0-8)
+    // 9-35: main inventory (inventory slots 9-35)
+    // 36-39: armor (armor slots 0-3)
+    // 40: offhand (offhand slot 0)
+    // 41-44: crafting input (crafting_input slots 0-3)
+    // 45: crafting output (crafting_output slot 0)
+
+    if (slotIndex >= 0 && slotIndex <= 8) {
+      // Hotbar
+      return { containerId: "hotbar", slot: slotIndex };
+    } else if (slotIndex >= 9 && slotIndex <= 35) {
+      // Main inventory
+      return { containerId: "inventory", slot: slotIndex };
+    } else if (slotIndex >= 36 && slotIndex <= 39) {
+      // Armor slots
+      return { containerId: "armor", slot: slotIndex - 36 };
+    } else if (slotIndex === 45) {
+      // Offhand
+      return { containerId: "offhand", slot: 0 };
+    } else {
+      throw new Error(`Invalid slot index: ${slotIndex}`);
+    }
+  }
+
+  function waitForResponse(requestId: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        bot.removeListener(`itemStackResponse:${requestId}`, listener);
+        resolve(false);
+      }, 5000); // 5 second timeout
+
+      const listener = (success: boolean) => {
+        clearTimeout(timeout);
+        resolve(success);
+      };
+
+      bot.once(`itemStackResponse:${requestId}`, listener);
+    });
   }
 }

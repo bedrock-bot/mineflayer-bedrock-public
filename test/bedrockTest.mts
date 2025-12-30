@@ -152,6 +152,142 @@ for (const supportedVersion of testedVersions) {
 
     });
 
+    it("should move item to another empty slot", async () => {
+      const dataBuilder = getDataBuilder("1.21.130");
+
+      // Set up inventory with a sword in hotbar slot 0
+      dataBuilder.setInventoryItem(0, "netherite_sword", 1, 1001);
+
+      const item_stack_requests = [];
+      registry.handleItemRegistry(dataBuilder.data.item_registry);
+      server = await startServer("127.0.0.1", 25567, supportedVersion);
+      setTimeout(() => (bot = connectToServer(supportedVersion)), 50);
+      client = await waitForClientConnect(server);
+
+      // Capture item_stack_request packets
+      client.on("item_stack_request", (packet) => {
+        item_stack_requests.push(packet);
+      });
+
+      await initializeClient(client, dataBuilder.data);
+
+      // Wait a bit for initialization to complete
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Verify initial state - sword should be in slot 0
+      expect(bot.inventory.slots[0]?.name).toBe("netherite_sword");
+      expect(bot.inventory.slots[0]?.count).toBe(1);
+      expect(bot.inventory.slots[1]).toBeFalsy(); // null or undefined
+
+      // Mock the server's response to item_stack_request
+      let requestCount = 0;
+      client.on("item_stack_request", (packet) => {
+        // Send success response for each request
+        for (const request of packet.requests) {
+          requestCount++;
+          const response = {
+            responses: [
+              {
+                status: "ok",
+                request_id: request.request_id,
+                containers: request.actions.map((action) => {
+                  if (action.type_id === "take") {
+                    return [
+                      {
+                        slot_type: action.source.slot_type,
+                        slots: [
+                          {
+                            slot: action.source.slot,
+                            hotbar_slot: action.source.slot,
+                            count: 0,
+                            item_stack_id: 0,
+                            custom_name: "",
+                            filtered_custom_name: "",
+                            durability_correction: 0,
+                          },
+                        ],
+                      },
+                      {
+                        slot_type: action.destination.slot_type,
+                        slots: [
+                          {
+                            slot: action.destination.slot,
+                            hotbar_slot: action.destination.slot,
+                            count: action.count,
+                            item_stack_id: action.source.stack_id,
+                            custom_name: "",
+                            filtered_custom_name: "",
+                            durability_correction: 0,
+                          },
+                        ],
+                      },
+                    ];
+                  } else if (action.type_id === "place") {
+                    return [
+                      {
+                        slot_type: action.source.slot_type,
+                        slots: [
+                          {
+                            slot: action.source.slot,
+                            hotbar_slot: action.source.slot,
+                            count: 0,
+                            item_stack_id: 0,
+                            custom_name: "",
+                            filtered_custom_name: "",
+                            durability_correction: 0,
+                          },
+                        ],
+                      },
+                      {
+                        slot_type: action.destination.slot_type,
+                        slots: [
+                          {
+                            slot: action.destination.slot,
+                            hotbar_slot: action.destination.slot,
+                            count: action.count,
+                            item_stack_id: action.source.stack_id,
+                            custom_name: "",
+                            filtered_custom_name: "",
+                            durability_correction: 0,
+                          },
+                        ],
+                      },
+                    ];
+                  }
+                }).flat(),
+              },
+            ],
+          };
+
+          client.write("item_stack_response", response);
+        }
+      });
+
+      // Move item from slot 0 to slot 1
+      await bot.moveSlotItem(0, 1);
+
+      // Verify the move operation
+      expect(item_stack_requests.length).toBeGreaterThanOrEqual(2);
+
+      // First request should be a "take" from hotbar slot 0
+      const firstRequest = item_stack_requests[item_stack_requests.length - 2];
+      expect(firstRequest.requests).toHaveLength(1);
+      expect(firstRequest.requests[0].actions).toHaveLength(1);
+      expect(firstRequest.requests[0].actions[0].type_id).toBe("take");
+      expect(firstRequest.requests[0].actions[0].source.slot_type.container_id).toBe("hotbar");
+      expect(firstRequest.requests[0].actions[0].source.slot).toBe(0);
+      expect(firstRequest.requests[0].actions[0].destination.slot_type.container_id).toBe("cursor");
+
+      // Second request should be a "place" to hotbar slot 1
+      const secondRequest = item_stack_requests[item_stack_requests.length - 1];
+      expect(secondRequest.requests).toHaveLength(1);
+      expect(secondRequest.requests[0].actions).toHaveLength(1);
+      expect(secondRequest.requests[0].actions[0].type_id).toBe("place");
+      expect(secondRequest.requests[0].actions[0].source.slot_type.container_id).toBe("cursor");
+      expect(secondRequest.requests[0].actions[0].destination.slot_type.container_id).toBe("hotbar");
+      expect(secondRequest.requests[0].actions[0].destination.slot).toBe(1);
+    });
+
     afterEach(async () => {
       if (server) {
         await server.close();
