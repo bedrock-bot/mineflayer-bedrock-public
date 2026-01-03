@@ -1,10 +1,12 @@
-module.exports = inject
+import type { BedrockBot } from '../../index.js';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
-function inject (bot) {
-  const ChatMessage = require('prismarine-chat')(bot.registry)
+export default function inject(bot: BedrockBot) {
+  const ChatMessage = require('prismarine-chat')(bot.registry);
 
   bot.tablist = {
     header: new ChatMessage(''),
-    footer: new ChatMessage('')
-  }
+    footer: new ChatMessage(''),
+  };
 }

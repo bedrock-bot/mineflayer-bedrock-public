@@ -1,8 +1,10 @@
-module.exports = inject
+import type { BedrockBot } from '../../index.js';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
-function inject (bot) {
-  const ScoreBoard = require('../scoreboard')(bot)
-  const scoreboards = {}
+export default function inject(bot: BedrockBot) {
+  const ScoreBoard = require('../scoreboard')(bot);
+  const scoreboards: Record<string, any> = {};
 
   bot._client.on('set_display_objective', (packet) => {
     //console.log(packet)
@@ -26,13 +28,13 @@ function inject (bot) {
     //   scoreboards[packet.name].setTitle(packet.displayText)
     //   bot.emit('scoreboardTitleChanged', scoreboards[packet.name])
     // }
-  })
+  });
 
   bot._client.on('remove_objective', (packet) => {
     //console.log(packet)
     // bot.emit('scoreboardDeleted', scoreboards[packet.name])
     // delete scoreboards[packet.name]
-  })
+  });
 
   bot._client.on('set_score', (packet) => {
     //console.log(packet)
@@ -55,8 +57,8 @@ function inject (bot) {
     //     }
     //   }
     // }
-  })
+  });
 
-  bot.scoreboards = scoreboards
-  bot.scoreboard = ScoreBoard.positions
+  bot.scoreboards = scoreboards;
+  bot.scoreboard = ScoreBoard.positions;
 }

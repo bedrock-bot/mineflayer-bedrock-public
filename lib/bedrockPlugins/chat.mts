@@ -1,26 +1,43 @@
-const assert = require('assert')
+import type { BedrockBot } from '../../index.js';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
-const USERNAME_REGEX = '(?:\\(.{1,15}\\)|\\[.{1,15}\\]|.){0,5}?(\\w+)'
-const LEGACY_VANILLA_CHAT_REGEX = new RegExp(`^${USERNAME_REGEX}\\s?[>:\\-»\\]\\)~]+\\s(.*)$`)
+const USERNAME_REGEX = '(?:\\(.{1,15}\\)|\\[.{1,15}\\]|.){0,5}?(\\w+)';
+const LEGACY_VANILLA_CHAT_REGEX = new RegExp(`^${USERNAME_REGEX}\\s?[>:\\-»\\]\\)~]+\\s(.*)$`);
 
-module.exports = inject
+interface ChatPattern {
+  name: string;
+  patterns: RegExp[];
+  position: number;
+  matches: string[];
+  messages: any[];
+  deprecated?: boolean;
+  repeat: boolean;
+  parse: boolean;
+}
 
-function inject(bot, options) {
-  const CHAT_LENGTH_LIMIT = options.chatLengthLimit ?? (bot.supportFeature('lessCharsInChat') ? 100 : 256)
-  const defaultChatPatterns = options.defaultChatPatterns ?? true
+interface ChatOptions {
+  chatLengthLimit?: number;
+  defaultChatPatterns?: boolean;
+}
 
-  const ChatMessage = require('prismarine-chat')(bot.registry)
-  // chat.pattern.type will emit an event for bot.on() of the same type, eg chatType = whisper will trigger bot.on('whisper')
-  const _patterns = {}
-  let _length = 0
+export default function inject(bot: BedrockBot, options: ChatOptions = {}) {
+  const CHAT_LENGTH_LIMIT = options.chatLengthLimit ?? (bot.supportFeature('lessCharsInChat') ? 100 : 256);
+  const defaultChatPatterns = options.defaultChatPatterns ?? true;
+
+  const ChatMessage = require('prismarine-chat')(bot.registry);
+
+  const _patterns: Record<number, ChatPattern | undefined> = {};
+  let _length = 0;
+
   // deprecated
-  bot.chatAddPattern = (patternValue, typeValue) => {
-    return bot.addChatPattern(typeValue, patternValue, { deprecated: true })
-  }
+  bot.chatAddPattern = (patternValue: RegExp, typeValue: string) => {
+    return bot.addChatPattern(typeValue, patternValue, { deprecated: true });
+  };
 
-  bot.addChatPatternSet = (name, patterns, opts = {}) => {
-    if (!patterns.every(p => p instanceof RegExp)) throw new Error('Pattern parameter should be of type RegExp')
-    const { repeat = true, parse = false } = opts
+  bot.addChatPatternSet = (name: string, patterns: RegExp[], opts: { repeat?: boolean; parse?: boolean } = {}) => {
+    if (!patterns.every((p) => p instanceof RegExp)) throw new Error('Pattern parameter should be of type RegExp');
+    const { repeat = true, parse = false } = opts;
     _patterns[_length++] = {
       name,
       patterns,
@@ -28,14 +45,14 @@ function inject(bot, options) {
       matches: [],
       messages: [],
       repeat,
-      parse
-    }
-    return _length
-  }
+      parse,
+    };
+    return _length;
+  };
 
-  bot.addChatPattern = (name, pattern, opts = {}) => {
-    if (!(pattern instanceof RegExp)) throw new Error('Pattern parameter should be of type RegExp')
-    const { repeat = true, deprecated = false, parse = false } = opts
+  bot.addChatPattern = (name: string, pattern: RegExp, opts: { repeat?: boolean; deprecated?: boolean; parse?: boolean } = {}) => {
+    if (!(pattern instanceof RegExp)) throw new Error('Pattern parameter should be of type RegExp');
+    const { repeat = true, deprecated = false, parse = false } = opts;
     _patterns[_length] = {
       name,
       patterns: [pattern],
@@ -44,178 +61,239 @@ function inject(bot, options) {
       messages: [],
       deprecated,
       repeat,
-      parse
-    }
-    return _length++ // increment length after we give it back to the user
-  }
+      parse,
+    };
+    return _length++;
+  };
 
-  bot.removeChatPattern = name => {
+  bot.removeChatPattern = (name: string | number) => {
     if (typeof name === 'number') {
-      _patterns[name] = undefined
+      _patterns[name] = undefined;
     } else {
-      const matchingPatterns = Object.entries(_patterns).filter(pattern => pattern[1]?.name === name)
+      const matchingPatterns = Object.entries(_patterns).filter((pattern) => pattern[1]?.name === name);
       matchingPatterns.forEach(([indexString]) => {
-        _patterns[+indexString] = undefined
-      })
+        _patterns[+indexString] = undefined;
+      });
     }
-  }
+  };
 
-  function findMatchingPatterns(msg) {
-    const found = []
+  function findMatchingPatterns(msg: string): number[] {
+    const found: number[] = [];
     for (const [indexString, pattern] of Object.entries(_patterns)) {
-      if (!pattern) continue
-      const { position, patterns } = pattern
+      if (!pattern) continue;
+      const { position, patterns } = pattern;
       if (patterns[position].test(msg)) {
-        found.push(+indexString)
+        found.push(+indexString);
       }
     }
-    return found
+    return found;
   }
 
-  bot.on('messagestr', (msg, _, originalMsg) => {
-    const foundPatterns = findMatchingPatterns(msg)
+  bot.on('messagestr', (msg: string, _: any, originalMsg: any) => {
+    const foundPatterns = findMatchingPatterns(msg);
 
     for (const ix of foundPatterns) {
-      _patterns[ix].matches.push(msg)
-      _patterns[ix].messages.push(originalMsg)
-      _patterns[ix].position++
+      const pattern = _patterns[ix];
+      if (!pattern) continue;
 
-      if (_patterns[ix].deprecated) {
-        const [, ...matches] = _patterns[ix].matches[0].match(_patterns[ix].patterns[0])
-        bot.emit(_patterns[ix].name, ...matches, _patterns[ix].messages[0].translate, ..._patterns[ix].messages)
-        _patterns[ix].messages = [] // clear out old messages
-      } else { // regular parsing
-        if (_patterns[ix].patterns.length > _patterns[ix].matches.length) return // we have all the matches, so we can emit the done event
-        if (_patterns[ix].parse) {
-          const matches = _patterns[ix].patterns.map((pattern, i) => {
-            const [, ...matches] = _patterns[ix].matches[i].match(pattern) // delete full message match
-            return matches
-          })
-          bot.emit(`chat:${_patterns[ix].name}`, matches)
-        } else {
-          bot.emit(`chat:${_patterns[ix].name}`, _patterns[ix].matches)
+      pattern.matches.push(msg);
+      pattern.messages.push(originalMsg);
+      pattern.position++;
+
+      if (pattern.deprecated) {
+        const matchResult = pattern.matches[0].match(pattern.patterns[0]);
+        if (matchResult) {
+          const [, ...matches] = matchResult;
+          (bot.emit as any)(pattern.name, ...matches, pattern.messages[0]?.translate, ...pattern.messages);
         }
-        // these are possibly null-ish if the user deletes them as soon as the event for the match is emitted
-      }
-      if (_patterns[ix]?.repeat) {
-        _patterns[ix].position = 0
-        _patterns[ix].matches = []
+        pattern.messages = [];
       } else {
-        _patterns[ix] = undefined
-      }
-    }
-  })
+        if (pattern.patterns.length > pattern.matches.length) continue;
+        if (pattern.parse) {
+          const matches = pattern.patterns.map((p, i) => {
+            const matchResult = pattern.matches[i].match(p);
+            if (matchResult) {
+              const [, ...m] = matchResult;
+              return m;
+            }
+            return [];
+          });
 
-  addDefaultPatterns()
-
-  bot._client.on('text', (data) => {
-
-    let msg;
-    if (data.type === 'translation') {
-      const params = [];
-      for (const param of data.parameters) {
-        if (param.startsWith('%') && bot.registry.language[param.substr(1)] != null) {
-          params.push(bot.registry.language[param.substr(1)])
+          bot.emit(`chat:${pattern.name}` as `chat:${string}`, matches);
         } else {
-          params.push(param)
+          (bot.emit as any)(`chat:${pattern.name}`, pattern.matches);
         }
       }
-      msg = new ChatMessage({ translate: data.message, with: params })
-    }else{
-      msg = ChatMessage.fromNotch(data.message);
-    }
 
-
-
-
-
-    if (['chat', 'whisper', 'announcement'].includes(data.type)) {
-      bot.emit('message', msg, 'chat', data.source_name, null);
-      bot.emit('messagestr', msg.toString(), data.type, msg, data.source_name, null);
-    } else if (['popup', 'jukebox_popup'].includes(data.type)) {
-      bot.emit('actionBar', msg, null);
-    } else {
-      bot.emit('message', msg, data.type, null);
-      bot.emit('messagestr', msg.toString(), data.type, msg, null);
+      if (_patterns[ix]?.repeat) {
+        _patterns[ix]!.position = 0;
+        _patterns[ix]!.matches = [];
+      } else {
+        _patterns[ix] = undefined;
+      }
     }
   });
 
+  addDefaultPatterns();
 
-  function chatWithHeader(message) {
-    if (typeof message === 'number') message = message.toString()
+  // Handle incoming text packets
+  bot._client.on('text', (data) => {
+    let msg: any;
+
+    if (data.type === 'translation') {
+      // Handle translation messages with parameters
+      const params: string[] = [];
+      if (data.parameters) {
+        for (const param of data.parameters) {
+          if (typeof param === 'string' && param.startsWith('%') && bot.registry.language[param.substring(1)] != null) {
+            params.push(bot.registry.language[param.substring(1)]);
+          } else {
+            params.push(param);
+          }
+        }
+      }
+      msg = new ChatMessage({ translate: data.message, with: params });
+    } else if (['json', 'json_whisper', 'json_announcement'].includes(data.type)) {
+      // Handle JSON/tellraw messages (Bedrock uses rawtext format)
+      try {
+        const jsonContent = (data.message || '').trim();
+        if (jsonContent) {
+          const parsed = typeof jsonContent === 'string' ? JSON.parse(jsonContent) : jsonContent;
+          // Convert Bedrock rawtext format to Java-compatible format
+          if (parsed.rawtext && Array.isArray(parsed.rawtext)) {
+            // Convert rawtext array to extra array format that prismarine-chat understands
+            const converted = {
+              text: '',
+              extra: parsed.rawtext.map((item: any) => {
+                if (typeof item === 'string') return { text: item };
+                if (item.text) return { text: item.text };
+                if (item.translate) return { translate: item.translate, with: item.with };
+                if (item.selector) return { text: item.selector }; // Simplified selector handling
+                if (item.score) return { text: `${item.score.name}:${item.score.objective}` };
+                return item;
+              }),
+            };
+            msg = new ChatMessage(converted);
+          } else {
+            msg = new ChatMessage(parsed);
+          }
+        } else {
+          msg = new ChatMessage({ text: '' });
+        }
+      } catch (e) {
+        // If JSON parsing fails, treat as plain text
+        msg = ChatMessage.fromNotch(data.message || '');
+      }
+    } else {
+      // Handle regular text messages
+      msg = ChatMessage.fromNotch(data.message || '');
+    }
+
+    if (['chat', 'whisper', 'announcement', 'json_whisper', 'json_announcement'].includes(data.type)) {
+      (bot.emit as any)('message', msg, 'chat', data.source_name, null);
+      (bot.emit as any)('messagestr', msg.toString(), data.type, msg, data.source_name, null);
+    } else if (['popup', 'jukebox_popup'].includes(data.type)) {
+      (bot.emit as any)('actionBar', msg, null);
+    } else if (data.type === 'json') {
+      // JSON messages are system/server messages
+      (bot.emit as any)('message', msg, 'system', null);
+      (bot.emit as any)('messagestr', msg.toString(), 'system', msg, null);
+    } else {
+      (bot.emit as any)('message', msg, data.type, null);
+      (bot.emit as any)('messagestr', msg.toString(), data.type, msg, null);
+    }
+  });
+
+  function chatWithHeader(message: string | number) {
+    if (typeof message === 'number') message = message.toString();
     if (typeof message !== 'string') {
-      throw new Error('Chat message type must be a string or number: ' + typeof message)
+      throw new Error('Chat message type must be a string or number: ' + typeof message);
     }
 
     if (message.startsWith('/')) {
-      // Do not try and split a command without a header
+      // Send command via command_request packet (updated for 1.21.130)
+      // Based on real client packet capture - command includes the leading slash
+      const client = bot._client as any;
       bot._client.write('command_request', {
-        command: message,
+        command: message, // Keep the leading slash - real client sends it
         origin: {
           type: 'player',
-          uuid: bot.player.uuid,
+          uuid: client.profile?.uuid || bot.player?.uuid || '',
           request_id: '',
+          player_entity_id: 0n,
         },
         internal: false,
-        version: 76
-      })
-      return
+        version: 'latest',
+      } as any);
+      return;
     }
 
-    const lengthLimit = CHAT_LENGTH_LIMIT
+    const lengthLimit = CHAT_LENGTH_LIMIT;
+    const client = bot._client as any;
+
     message.split('\n').forEach((subMessage) => {
-      if (!subMessage) return
-      let i
-      let smallMsg
-      for (i = 0; i < subMessage.length; i += lengthLimit) {
-        smallMsg = subMessage.substring(i, i + lengthLimit)
+      if (!subMessage) return;
+      for (let i = 0; i < subMessage.length; i += lengthLimit) {
+        const smallMsg = subMessage.substring(i, i + lengthLimit);
+
+        // Construct the text packet with category 'authored' for client-to-server chat
+        // Updated for 1.21.130 format
         bot._client.write('text', {
-          type: 'chat',
           needs_translation: false,
-          source_name: bot._client.username,
+          category: 'authored',
+          chat: 'chat',
+          type: 'chat',
+          whisper: 'whisper',
+          announcement: 'announcement',
+          source_name: client.username || '',
           message: smallMsg,
-          xuid: bot._client.profile.xuid.toString(), // bot._client.startGameData,
+          xuid: '',
           platform_chat_id: '',
-          filtered_message: ''
-        })
+          has_filtered_message: false,
+        } as any);
       }
-    })
+    });
   }
 
-  async function tabComplete(text, assumeCommand = false, sendBlockInSight = true, timeout = 5000) {
-    assert(false, 'Unimplemented')
-    return []
+  async function tabComplete(text: string, assumeCommand = false, sendBlockInSight = true, timeout = 5000): Promise<string[]> {
+    // Tab completion is not implemented for Bedrock Edition
+    // Bedrock uses a different command system that doesn't support client-side tab completion
+    console.warn('tabComplete is not implemented for Bedrock Edition');
+    return [];
   }
 
-  bot.whisper = (username, message) => {
-    chatWithHeader(`/tell ${username} ${message}`)
-  }
-  bot.chat = (message) => {
-    chatWithHeader(message)
-  }
+  bot.whisper = (username: string, message: string) => {
+    chatWithHeader(`/tell ${username} ${message}`);
+  };
 
-  bot.tabComplete = tabComplete
+  bot.chat = (message: string) => {
+    chatWithHeader(message);
+  };
+
+  bot.tabComplete = tabComplete;
 
   function addDefaultPatterns() {
-    // 1.19 changes the chat format to move <sender> prefix from message contents to a seperate field.
-    // TODO: new chat lister to handle this
-    if (!defaultChatPatterns) return
-    bot.addChatPattern('whisper', new RegExp(`^${USERNAME_REGEX} whispers(?: to you)?:? (.*)$`), { deprecated: true })
-    bot.addChatPattern('whisper', new RegExp(`^\\[${USERNAME_REGEX} -> \\w+\\s?\\] (.*)$`), { deprecated: true })
-    bot.addChatPattern('chat', LEGACY_VANILLA_CHAT_REGEX, { deprecated: true })
+    if (!defaultChatPatterns) return;
+    bot.addChatPattern('whisper', new RegExp(`^${USERNAME_REGEX} whispers(?: to you)?:? (.*)$`), {
+      deprecated: true,
+    });
+    bot.addChatPattern('whisper', new RegExp(`^\\[${USERNAME_REGEX} -> \\w+\\s?\\] (.*)$`), {
+      deprecated: true,
+    });
+    bot.addChatPattern('chat', LEGACY_VANILLA_CHAT_REGEX, { deprecated: true });
   }
 
-  function awaitMessage(...args) {
-    return new Promise((resolve, reject) => {
-      const resolveMessages = args.flatMap(x => x)
-      function messageListener(msg) {
-        if (resolveMessages.some(x => x instanceof RegExp ? x.test(msg) : msg === x)) {
-          resolve(msg)
-          bot.off('messagestr', messageListener)
+  function awaitMessage(...args: (string | RegExp | (string | RegExp)[])[]): Promise<string> {
+    return new Promise((resolve) => {
+      const resolveMessages = args.flatMap((x) => x);
+      function messageListener(msg: string) {
+        if (resolveMessages.some((x) => (x instanceof RegExp ? x.test(msg) : msg === x))) {
+          resolve(msg);
+          bot.off('messagestr', messageListener);
         }
       }
-      bot.on('messagestr', messageListener)
-    })
+      bot.on('messagestr', messageListener);
+    });
   }
-  bot.awaitMessage = awaitMessage
+  bot.awaitMessage = awaitMessage;
 }

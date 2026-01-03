@@ -1,7 +1,11 @@
-const nbt = require('prismarine-nbt')
-module.exports = inject
+import type { BedrockBot } from '../../index.js';
+import { createRequire } from 'module';
+import { createTask } from '../promise_utils.js';
+const require = createRequire(import.meta.url);
 
-const difficultyNames = ['peaceful', 'easy', 'normal', 'hard']
+const nbt = require('prismarine-nbt');
+
+const difficultyNames = ['peaceful', 'easy', 'normal', 'hard'];
 //const gameModes = ['survival', 'creative', 'adventure']
 
 // const dimensionNames = {
@@ -12,7 +16,11 @@ const difficultyNames = ['peaceful', 'easy', 'normal', 'hard']
 
 // const parseGameMode = gameModeBits => gameModes[(gameModeBits & 0b11)] // lower two bits
 
-function inject (bot, options) {
+interface GameOptions {
+  brand?: string;
+}
+
+export default function inject(bot: BedrockBot, options: GameOptions = {}) {
   // function getBrandCustomChannelName () {
   //   if (bot.supportFeature('customChannelMCPrefixed')) {
   //     return 'MC|Brand'
@@ -22,39 +30,45 @@ function inject (bot, options) {
   //   throw new Error('Unsupported brand channel name')
   // }
 
-  function handleItemRegistryPacketData (packet) {
-    if(bot.registry.handleItemRegistry){
+  function handleItemRegistryPacketData(packet: any) {
+    if (bot.registry.handleItemRegistry) {
       bot.registry.handleItemRegistry(packet);
+      (bot as any).item_registry_task.finish();
+      (bot as any).item_registry_task = null;
     }
   }
 
-  function handleStartGamePacketData (packet) {
-    bot.game.levelType = packet.generator ?? (packet.generator === 2 ? 'flat' : 'default')
-    bot.game.hardcore = packet.player_gamemode === 'hardcore'
-    bot.game.gameMode = packet.player_gamemode
+  function handleStartGamePacketData(packet: any) {
+    bot.game.levelType = packet.generator ?? (packet.generator === 2 ? 'flat' : 'default');
+    bot.game.hardcore = packet.player_gamemode === 'hardcore';
+    bot.game.gameMode = packet.player_gamemode;
 
-    bot.game.dimension = packet.dimension
+    bot.game.dimension = packet.dimension;
 
     bot.registry.handleStartGame(packet);
+    if (packet.itemStates) {
+      (bot as any).item_registry_task.finish();
+      (bot as any).item_registry_task = null;
+    }
 
     bot._client.queue('serverbound_loading_screen', {
-      "type": 1
-    })
+      type: 1,
+    });
     bot._client.queue('serverbound_loading_screen', {
-      "type": 2
-    })
+      type: 2,
+    });
     bot._client.queue('interact', {
-      "action_id": "mouse_over_entity",
-      "target_entity_id": 0n,
-      "position": {
-        "x": 0,
-        "y": 0,
-        "z": 0
-      }
-    })
+      action_id: 'mouse_over_entity',
+      target_entity_id: 0n,
+      position: {
+        x: 0,
+        y: 0,
+        z: 0,
+      },
+    });
     bot._client.queue('set_local_player_as_initialized', {
-      "runtime_entity_id": `${bot.entity.id}`
-    })
+      runtime_entity_id: `${bot.entity.id}`,
+    });
 
     // CODE BELOW MIGHT BE WRONG
     // if (bot.supportFeature('dimensionIsAnInt')) {
@@ -84,28 +98,28 @@ function inject (bot, options) {
     //console.log(bot.registry.dimensionsByName)
     //const { minY, height } = bot.registry.dimensionsByName[bot.game.dimension]
     // CODE BELOW SHOULD BE OPTIMIZED FOR BEDROCK
-    if(bot.registry.dimensionsByName){
-      const { minY, height } = bot.registry.dimensionsByName[bot.game.dimension]
-      bot.game.minY = minY
-      bot.game.height = height
+    if (bot.registry.dimensionsByName) {
+      const { minY, height } = bot.registry.dimensionsByName[bot.game.dimension];
+      bot.game.minY = minY;
+      bot.game.height = height;
     } else {
       // depends on game version
-      bot.game.minY = -64
-      bot.game.height = 384
+      bot.game.minY = -64;
+      bot.game.height = 384;
     }
     if (packet.difficulty) {
-      bot.game.difficulty = difficultyNames[packet.difficulty]
+      bot.game.difficulty = difficultyNames[packet.difficulty];
     }
   }
 
-  bot.game = {}
+  bot.game = {} as any;
+  (bot as any).item_registry_task = createTask();
 
   // const brandChannel = getBrandCustomChannelName()
   // bot._client.registerChannel(brandChannel, ['string', []])
 
   bot._client.on('start_game', (packet) => {
-    handleStartGamePacketData(packet)
-
+    handleStartGamePacketData(packet);
 
     // bot.game.maxPlayers = packet.maxPlayers
     // if (packet.enableRespawnScreen) {
@@ -115,21 +129,21 @@ function inject (bot, options) {
     //   bot.game.serverViewDistance = packet.viewDistance
     // }
 
-    bot.emit('login')
-    bot.emit('game')
+    bot.emit('login');
+    bot.emit('game');
 
     // varint length-prefixed string as data
     //bot._client.writeChannel(brandChannel, options.brand)
-  })
+  });
 
   bot._client.on('item_registry', (packet) => {
-    handleItemRegistryPacketData(packet)
-  })
+    handleItemRegistryPacketData(packet);
+  });
 
   bot._client.on('respawn', (packet) => {
     //handleRespawnPacketData(packet)
-    bot.emit('game')
-  })
+    bot.emit('game');
+  });
 
   // bot._client.on('game_state_change', (packet) => {
   //   if (packet?.reason === 4 && packet?.gameMode === 1) {

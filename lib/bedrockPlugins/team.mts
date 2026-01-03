@@ -1,6 +1,7 @@
-module.exports = inject
+import type { BedrockBot } from '../../index.js';
 
-function inject (bot) { // Unsupported in bedrock
-  bot.teams = {}
-  bot.teamMap = {}
+export default function inject(bot: BedrockBot) {
+  // Unsupported in bedrock
+  bot.teams = {};
+  bot.teamMap = {};
 }

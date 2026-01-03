@@ -1,13 +1,12 @@
-module.exports = inject
+import type { BedrockBot } from '../../index.js';
 
-function inject (bot) {
+export default function inject(bot: BedrockBot) {
   bot._client.on('disconnect', (packet) => {
-    const kicked = packet.reason.indexOf('kick') !== -1
-    bot.emit('kicked', packet.message ?? packet.reason, kicked)
-
-  })
+    const kicked = packet.reason.indexOf('kick') !== -1;
+    bot.emit('kicked', packet.message ?? packet.reason, kicked);
+  });
   bot.quit = (reason) => {
-    reason = reason ?? 'disconnect.quitting'
-    bot.end(reason)
-  }
+    reason = reason ?? 'disconnect.quitting';
+    bot.end(reason);
+  };
 }
