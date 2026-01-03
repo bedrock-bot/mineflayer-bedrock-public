@@ -15,7 +15,7 @@ import registryLoader, { type RegistryBedrock } from 'prismarine-registry';
 import type { Bot } from '../index.js';
 import mineflayer from '../index.js';
 import { expect } from 'expect';
-import { getDataBuilder, startServer, waitForClientConnect, initializeClient } from 'minecraft-bedrock-server';
+import { getDataBuilder, startServer, waitForClientConnect, initializeClient } from 'minecraft-bedrock-test-server';
 
 function connectToServer(version: string) {
   return mineflayer.createBot({
