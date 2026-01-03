@@ -1,6 +1,6 @@
 {
   "name": "mineflayer",
-  "version": "4.31.0",
+  "version": "4.33.0",
   "description": "create minecraft bots with a stable, high level API",
   "main": "index.js",
   "types": "index.d.ts",
@@ -24,8 +24,8 @@
     "bedrock-protocol": "^3.52.0",
     "bedrock-provider": "^3.0.0",
     "expect": "^29.7.0",
-    "minecraft-data": "^3.95.1",
-    "minecraft-protocol": "^1.60.0",
+    "minecraft-data": "^3.98.0",
+    "minecraft-protocol": "^1.61.0",
     "prismarine-biome": "^1.1.1",
     "prismarine-block": "^1.22.0",
     "prismarine-chat": "^1.7.1",
@@ -40,6 +40,7 @@
     "prismarine-world": "^3.6.0",
     "protodef": "^1.18.0",
     "typed-emitter": "^1.0.0",
+    "uuid-1345": "^1.0.2",
     "vec3": "^0.1.7"
   },
   "devDependencies": {
@@ -52,6 +53,6 @@
     "protodef-yaml": "^1.5.3",
     "standard": "^17.0.0",
     "standard-markdown": "^7.1.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.4.5"
   }
 }
