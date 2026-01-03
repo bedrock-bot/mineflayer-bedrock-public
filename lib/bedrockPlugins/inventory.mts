@@ -59,6 +59,12 @@ export default function inject(bot: BedrockBot) {
   bot.inventory = windows.createWindow(0, 'minecraft:inventory', 'Inventory');
   bot.inventory.hotbarStart = 0; // first 9 slots are crafting grid
 
+  // Ensure we have 46 slots to include offhand at slot 45
+  // (Bedrock registry doesn't declare 'shieldSlot' feature, so prismarine-windows only creates 45 slots)
+  while (bot.inventory.slots.length < 46) {
+    bot.inventory.slots.push(null);
+  }
+
   bot.currentWindow = null;
   bot.heldItem = null;
   bot.usingHeldItem = false;

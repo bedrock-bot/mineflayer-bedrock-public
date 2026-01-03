@@ -462,7 +462,8 @@ for (const supportedVersion of testedVersions) {
     describe('Window Search Methods', () => {
       it('should find item in inventory using findInventoryItem', async () => {
         const dataBuilder = getDataBuilder('1.21.130');
-        dataBuilder.setInventoryItem(5, 'diamond', 10, 1001);
+        // Use slot 10 which is in the inventory range (9-35), not hotbar (0-8)
+        dataBuilder.setInventoryItem(10, 'diamond', 10, 1001);
 
         registry.handleItemRegistry(dataBuilder.data.item_registry);
         server = await startServer('127.0.0.1', 25567, supportedVersion);
@@ -482,9 +483,10 @@ for (const supportedVersion of testedVersions) {
 
       it('should count items correctly using count method', async () => {
         const dataBuilder = getDataBuilder('1.21.130');
-        dataBuilder.setInventoryItem(0, 'diamond', 10, 1001);
-        dataBuilder.setInventoryItem(1, 'diamond', 20, 1002);
-        dataBuilder.setInventoryItem(2, 'diamond', 34, 1003);
+        // Use slots in the inventory range (9-35), not hotbar (0-8)
+        dataBuilder.setInventoryItem(9, 'diamond', 10, 1001);
+        dataBuilder.setInventoryItem(10, 'diamond', 20, 1002);
+        dataBuilder.setInventoryItem(11, 'diamond', 34, 1003);
 
         registry.handleItemRegistry(dataBuilder.data.item_registry);
         server = await startServer('127.0.0.1', 25567, supportedVersion);
@@ -865,7 +867,7 @@ for (const supportedVersion of testedVersions) {
           window_id: 'inventory',
           slot: 0,
           item: dataBuilder.toNotch('diamond', 10, 9999),
-          full_container_name: { container_id: 'inventory' },
+          container: { container_id: 'inventory' },
           storage_item: { network_id: 0 },
         });
 
@@ -1037,7 +1039,8 @@ for (const supportedVersion of testedVersions) {
           });
 
           await initializeClient(client, dataBuilder.data);
-          await sleep(100);
+          // Wait longer for spawn mob_equipment packets to arrive (they're sent asynchronously after player_spawn)
+          await sleep(300);
 
           const initialCount = mob_equipment_packets.length;
 
