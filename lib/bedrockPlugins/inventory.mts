@@ -55,6 +55,24 @@ export default function inject(bot: BedrockBot) {
   const Item = (itemLoader as any)(bot.registry) as typeof Item;
   const windows = (windowLoader as any)(bot.registry) as WindowsExports;
 
+  // Override/add Bedrock-specific window types in prismarine-windows
+  // This avoids needing a patch file for prismarine-windows
+  // Bedrock layout: slots 0-8 hotbar, 9-35 main inventory, 36-39 armor, 45 offhand
+  const bedrockWindowTypes: Record<string, { type: string; inventory: { start: number; end: number }; slots: number; craft: number; requireConfirmation: boolean }> = {
+    // Override inventory to use Bedrock layout (items() returns slots 0-35)
+    'minecraft:inventory': { type: 'minecraft:inventory', inventory: { start: 0, end: 36 }, slots: 46, craft: -1, requireConfirmation: true },
+    // Container windows
+    'minecraft:generic_9x1': { type: 'minecraft:generic_9x1', inventory: { start: 9, end: 44 }, slots: 9 + 36, craft: -1, requireConfirmation: true },
+    'minecraft:generic_9x2': { type: 'minecraft:generic_9x2', inventory: { start: 18, end: 53 }, slots: 18 + 36, craft: -1, requireConfirmation: true },
+    'minecraft:generic_9x3': { type: 'minecraft:generic_9x3', inventory: { start: 27, end: 62 }, slots: 27 + 36, craft: -1, requireConfirmation: true },
+    'minecraft:generic_9x4': { type: 'minecraft:generic_9x4', inventory: { start: 36, end: 71 }, slots: 36 + 36, craft: -1, requireConfirmation: true },
+    'minecraft:generic_9x5': { type: 'minecraft:generic_9x5', inventory: { start: 45, end: 80 }, slots: 45 + 36, craft: -1, requireConfirmation: true },
+    'minecraft:generic_9x6': { type: 'minecraft:generic_9x6', inventory: { start: 54, end: 89 }, slots: 54 + 36, craft: -1, requireConfirmation: true },
+  };
+  for (const [key, value] of Object.entries(bedrockWindowTypes)) {
+    (windows as any).windows[key] = value; // Always override for Bedrock
+  }
+
   bot.quickBarSlot = null;
   bot.inventory = windows.createWindow(0, 'minecraft:inventory', 'Inventory');
   bot.inventory.hotbarStart = 0; // first 9 slots are crafting grid
@@ -109,6 +127,7 @@ export default function inject(bot: BedrockBot) {
       for (const action of transaction.actions) {
         if (action.source_type === 'container') {
           let window = getWindow(action.inventory_id);
+          if (!window) continue; // Skip if window not found (e.g., 'ui' type)
           const newItem = Item.fromNotch(action.new_item);
           // Preserve stack_id from Bedrock protocol
           if (newItem && action.new_item.stack_id !== undefined) {
@@ -259,35 +278,44 @@ export default function inject(bot: BedrockBot) {
       return;
     }
 
-    // Map Bedrock window types to prismarine-windows compatible types
-    const windowTypeMap: Record<string, string> = {
-      container: 'minecraft:generic_9x3', // Default chest
-      workbench: 'minecraft:crafting_table',
-      furnace: 'minecraft:furnace',
-      enchantment: 'minecraft:enchantment',
-      brewing_stand: 'minecraft:brewing_stand',
-      anvil: 'minecraft:anvil',
-      dispenser: 'minecraft:dispenser',
-      dropper: 'minecraft:dropper',
-      hopper: 'minecraft:hopper',
-      beacon: 'minecraft:beacon',
-      loom: 'minecraft:loom',
-      grindstone: 'minecraft:grindstone',
-      blast_furnace: 'minecraft:blast_furnace',
-      smoker: 'minecraft:smoker',
-      stonecutter: 'minecraft:stonecutter',
-      horse: 'EntityHorse',
+    // Map Bedrock window types to prismarine-windows compatible types and slot counts
+    // Slot counts are for the container portion only (not including player inventory)
+    const windowTypeMap: Record<string, { type: string; slots: number }> = {
+      container: { type: 'minecraft:generic_9x3', slots: 27 }, // Single chest (3 rows of 9)
+      double_chest: { type: 'minecraft:generic_9x6', slots: 54 }, // Double chest (6 rows of 9)
+      workbench: { type: 'minecraft:crafting_table', slots: 10 }, // 9 craft grid + 1 output
+      furnace: { type: 'minecraft:furnace', slots: 3 }, // Input, fuel, output
+      enchantment: { type: 'minecraft:enchanting_table', slots: 2 }, // Item + lapis
+      brewing_stand: { type: 'minecraft:brewing_stand', slots: 5 }, // 3 bottles + blaze + ingredient
+      anvil: { type: 'minecraft:anvil', slots: 3 }, // 2 input + 1 output
+      dispenser: { type: 'minecraft:dispenser', slots: 9 }, // 3x3 grid
+      dropper: { type: 'minecraft:dropper', slots: 9 }, // 3x3 grid
+      hopper: { type: 'minecraft:hopper', slots: 5 }, // 5 slots
+      beacon: { type: 'minecraft:beacon', slots: 1 }, // 1 payment slot
+      loom: { type: 'minecraft:loom', slots: 4 }, // Banner + dye + pattern + output
+      grindstone: { type: 'minecraft:grindstone', slots: 3 }, // 2 input + 1 output
+      blast_furnace: { type: 'minecraft:blast_furnace', slots: 3 }, // Same as furnace
+      smoker: { type: 'minecraft:smoker', slots: 3 }, // Same as furnace
+      stonecutter: { type: 'minecraft:stonecutter', slots: 2 }, // Input + output
+      horse: { type: 'EntityHorse', slots: 2 }, // Saddle + armor (varies by horse type)
+      shulker_box: { type: 'minecraft:shulker_box', slots: 27 }, // 27 slots like single chest
     };
 
-    const windowType = windowTypeMap[packet.window_type] || 'minecraft:generic_9x3';
+    const windowInfo = windowTypeMap[packet.window_type] || { type: 'minecraft:generic_9x3', slots: 27 };
 
-    // Create a new window for this container
+    // Create a new window for this container with explicit slot count
     const newWindow = windows.createWindow(
       packet.window_id,
-      windowType,
+      windowInfo.type,
       packet.window_type, // Use window_type as title for now
-      undefined // slotCount will be determined by window type
+      windowInfo.slots // Provide slot count for proper window creation
     );
+
+    if (!newWindow) {
+      console.warn(`Failed to create window for type: ${packet.window_type} (mapped to: ${windowInfo.type})`);
+      return;
+    }
+
     bot.currentWindow = newWindow;
 
     // Wait for inventory_content packet to populate the window before emitting windowOpen
@@ -1514,18 +1542,15 @@ export default function inject(bot: BedrockBot) {
     }
   }
   function getWindow(window_id: protocolTypes.WindowID): Window | null {
-    let window: Window | null;
     if (window_id === 'inventory' || window_id === 'armor' || window_id === 'offhand' || window_id === 'hotbar' || window_id === 'fixed_inventory') {
-      window = bot.inventory;
+      return bot.inventory;
     } else if (window_id === 'ui') {
       return null;
     } else {
       // For container windows (chest, furnace, etc.), use currentWindow
-      window = bot.currentWindow;
+      // Returns null if no container is currently open
+      return bot.currentWindow;
     }
-
-    assert(!!window);
-    return window;
   }
 
   /**
