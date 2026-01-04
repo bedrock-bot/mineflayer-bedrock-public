@@ -526,8 +526,13 @@ export default function inject(bot: BedrockBot, { physicsEnabled }: PhysicsOptio
 
   // player position and look (clientbound) server to client
   const setPosition = (packet: any) => {
-    if (BigInt(packet.runtime_id ?? packet.runtime_entity_id) !== BigInt(bot.entity.id)) return;
-    bot.logger.debug('BOT MOVED');
+    const packetId = BigInt(packet.runtime_id ?? packet.runtime_entity_id ?? 0);
+    const botId = BigInt(bot.entity?.id ?? 0);
+    if (packetId !== botId) {
+      bot.logger.debug(`move_player: ignoring, packet runtime_id=${packetId} != bot.entity.id=${botId}`);
+      return;
+    }
+    bot.logger.debug(`move_player: updating position, runtime_id=${packetId}`);
     bot.entity.height = 1.62;
     bot.entity.velocity.set(0, 0, 0);
 
@@ -535,7 +540,8 @@ export default function inject(bot: BedrockBot, { physicsEnabled }: PhysicsOptio
     const pos = bot.entity.position;
     const position = packet.player_position ?? packet.position;
     const start_game_packet = !!packet.player_position;
-    pos.set(position.x, position.y + bot.entity.height, position.z);
+    // Bedrock sends position + eye height (head position), so subtract height to get foot position
+    pos.set(position.x, position.y - bot.entity.height, position.z);
 
     const newYaw = packet.yaw ?? packet.rotation.z;
     const newPitch = packet.pitch ?? packet.rotation.x;
