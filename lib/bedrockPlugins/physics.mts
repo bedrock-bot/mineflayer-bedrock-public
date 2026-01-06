@@ -474,6 +474,8 @@ export default function inject(bot: BedrockBot, { physicsEnabled }: PhysicsOptio
   });
 
   bot.look = async (yaw: number, pitch: number, force?: boolean) => {
+    // TODO: fix. force = true required for Bedrock - gradual turning causes circling with pathfinder
+    // because pathfinder constantly updates target yaw while lastSentYaw slowly catches up
     force = true;
     if (!lookingTask.done) {
       lookingTask.finish(); // finish the previous one

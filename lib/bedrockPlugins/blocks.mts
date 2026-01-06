@@ -428,7 +428,145 @@ export default function inject(bot: BedrockBot, { version, storageBuilder, hideE
     // null block means chunk not loaded
     if (!block) return null;
 
+    // Apply per-state collision shapes for Bedrock dynamic blocks
+    const collisionShapes = bot.registry.blockCollisionShapes;
+    const blockType = bot.registry.blocks[block.type];
+
+    if (blockType?.shapeType == null) {
+      return block;
+    }
+
+    const dynamicShapes = collisionShapes?.dynamicShapes?.[blockType.shapeType];
+    if (!dynamicShapes) return block;
+
+    let shapeIndex: number;
+    const pos = block.position;
+
+    if (blockType.shapeType === 'stairs') {
+      // Stairs: index = direction*10 + half*5 + cornerShape
+      // direction: 0=East, 1=West, 2=South, 3=North (weirdo_direction)
+      // half: 0=bottom, 1=top (upside_down_bit)
+      // cornerShape: 0=straight, 1=inner_left, 2=inner_right, 3=outer_left, 4=outer_right
+      const props = block.getProperties?.() ?? {};
+      const direction = props.weirdo_direction ?? 0;
+      const upsideDown = props.upside_down_bit ? 1 : 0;
+      const cornerShape = calculateStairCornerShape(block, direction, upsideDown);
+      shapeIndex = direction * 10 + upsideDown * 5 + cornerShape;
+    } else if (blockType.shapeType === 'chorus') {
+      // Chorus plant: 6-bit bitmask for all 6 directions
+      // index = down + east*2 + north*4 + south*8 + up*16 + west*32
+      shapeIndex = 0;
+      const directions = [
+        { dx: 0, dy: -1, dz: 0, bit: 1 },   // Down
+        { dx: 1, dy: 0, dz: 0, bit: 2 },    // East
+        { dx: 0, dy: 0, dz: -1, bit: 4 },   // North
+        { dx: 0, dy: 0, dz: 1, bit: 8 },    // South
+        { dx: 0, dy: 1, dz: 0, bit: 16 },   // Up
+        { dx: -1, dy: 0, dz: 0, bit: 32 }   // West
+      ];
+      for (const { dx, dy, dz, bit } of directions) {
+        const neighbor = bot.world.getBlock(pos.offset(dx, dy, dz));
+        if (neighbor) {
+          const neighborType = bot.registry.blocks[neighbor.type];
+          const name = neighborType?.name;
+          const connects = name === 'chorus_plant' || name === 'chorus_flower' ||
+                          (bit === 1 && name === 'end_stone'); // Down connects to end_stone
+          if (connects) shapeIndex |= bit;
+        }
+      }
+    } else {
+      // Fences/panes: 4-bit bitmask (N=1, S=2, E=4, W=8)
+      shapeIndex = 0;
+      const directions = [
+        { dx: 0, dz: -1, bit: 1 },  // North
+        { dx: 0, dz: 1, bit: 2 },   // South
+        { dx: 1, dz: 0, bit: 4 },   // East
+        { dx: -1, dz: 0, bit: 8 }   // West
+      ];
+
+      for (const { dx, dz, bit } of directions) {
+        const neighbor = bot.world.getBlock(pos.offset(dx, 0, dz));
+        if (neighbor) {
+          const neighborType = bot.registry.blocks[neighbor.type];
+          const isSolid = neighbor.boundingBox === 'block';
+          const isSameType = neighbor.type === block.type;
+          const connectsFence = blockType.shapeType === 'fence' && neighborType?.shapeType === 'fence';
+          const connectsPane = blockType.shapeType === 'pane' && neighborType?.shapeType === 'pane';
+          if (isSolid || isSameType || connectsFence || connectsPane) {
+            shapeIndex |= bit;
+          }
+        }
+      }
+    }
+
+    const shapeId = dynamicShapes[shapeIndex];
+    if (shapeId !== undefined) {
+      block.shapes = collisionShapes.shapes[shapeId];
+    }
+
     return block;
+  }
+
+  // Calculate stair corner shape based on neighboring stairs
+  function calculateStairCornerShape(block: any, facing: number, upsideDown: number): number {
+    // 0=Straight, 1=Inner Left, 2=Inner Right, 3=Outer Left, 4=Outer Right
+    const pos = block.position;
+
+    // Get front and back offsets based on facing direction
+    // facing: 0=East(+X), 1=West(-X), 2=South(+Z), 3=North(-Z)
+    const offsets: Record<number, { front: [number, number], back: [number, number] }> = {
+      0: { front: [1, 0], back: [-1, 0] },   // East
+      1: { front: [-1, 0], back: [1, 0] },   // West
+      2: { front: [0, 1], back: [0, -1] },   // South
+      3: { front: [0, -1], back: [0, 1] }    // North
+    };
+    const offset = offsets[facing];
+    if (!offset) return 0;
+
+    const frontBlock = bot.world.getBlock(pos.offset(offset.front[0], 0, offset.front[1]));
+    const backBlock = bot.world.getBlock(pos.offset(offset.back[0], 0, offset.back[1]));
+
+    // Check for inner corner (stair in front, perpendicular facing)
+    if (frontBlock) {
+      const frontType = bot.registry.blocks[frontBlock.type];
+      if (frontType?.shapeType === 'stairs') {
+        const frontProps = frontBlock.getProperties?.() ?? {};
+        const frontUpsideDown = frontProps.upside_down_bit ? 1 : 0;
+        if (frontUpsideDown === upsideDown) {
+          const frontFacing = frontProps.weirdo_direction ?? 0;
+          if (isPerpendicularLeft(facing, frontFacing)) return 1;  // Inner Left
+          if (isPerpendicularRight(facing, frontFacing)) return 2; // Inner Right
+        }
+      }
+    }
+
+    // Check for outer corner (stair behind, perpendicular facing)
+    if (backBlock) {
+      const backType = bot.registry.blocks[backBlock.type];
+      if (backType?.shapeType === 'stairs') {
+        const backProps = backBlock.getProperties?.() ?? {};
+        const backUpsideDown = backProps.upside_down_bit ? 1 : 0;
+        if (backUpsideDown === upsideDown) {
+          const backFacing = backProps.weirdo_direction ?? 0;
+          if (isPerpendicularLeft(facing, backFacing)) return 3;  // Outer Left
+          if (isPerpendicularRight(facing, backFacing)) return 4; // Outer Right
+        }
+      }
+    }
+
+    return 0; // Straight
+  }
+
+  // Check if otherFacing is 90 degrees counter-clockwise from facing
+  function isPerpendicularLeft(facing: number, otherFacing: number): boolean {
+    const leftOf: Record<number, number> = { 0: 3, 1: 2, 2: 0, 3: 1 }; // E->N, W->S, S->E, N->W
+    return otherFacing === leftOf[facing];
+  }
+
+  // Check if otherFacing is 90 degrees clockwise from facing
+  function isPerpendicularRight(facing: number, otherFacing: number): boolean {
+    const rightOf: Record<number, number> = { 0: 2, 1: 3, 2: 1, 3: 0 }; // E->S, W->N, S->W, N->E
+    return otherFacing === rightOf[facing];
   }
 
   // if passed in block is within line of sight to the bot, returns true
